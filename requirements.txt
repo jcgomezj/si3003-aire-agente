@@ -1,0 +1,7 @@
+numpy>=1.26.0
+pandas>=2.1.0
+streamlit>=1.38.0
+plotly>=5.22.0
+groq>=0.11.0
+faiss-cpu>=1.8.0
+
