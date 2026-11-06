@@ -141,6 +141,7 @@ def run_agent_evaluation(
     api_key: Optional[str] = None,
     model_name: str = "openai/gpt-oss-120b",
     t_max: int = 5,
+    verbose: bool = False,
 ) -> pd.DataFrame:
     """
     Ejecuta las 12 preguntas de prueba sobre el agente usando la `GROQ_API_KEY` del entorno
@@ -158,7 +159,10 @@ def run_agent_evaluation(
     )
     records = []
 
-    for item in BENCHMARK_QUESTIONS:
+    total_q = len(BENCHMARK_QUESTIONS)
+    for idx, item in enumerate(BENCHMARK_QUESTIONS, start=1):
+        if verbose:
+            print(f"      -> [{idx:02d}/{total_q:02d}] Evaluando {item.id_pregunta} ({item.estacion_contexto})...", flush=True)
         resp = agent.run(user_query=item.pregunta, default_station=item.estacion_contexto)
         called_tools = [step.tool_name for step in resp.steps]
 

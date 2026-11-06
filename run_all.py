@@ -20,7 +20,6 @@ from src.agent_rag import AirQualityToolkit
 from src.data_loader import load_air_quality_data
 from src.eda import run_eda_pipeline
 from src.evaluate_agent import run_agent_evaluation
-from src.generate_deliverables_pdf import generate_all_deliverable_pdfs
 from src.model_part1 import ClassicalAirQualityModel, DEFAULT_MODEL_PATH
 
 
@@ -47,9 +46,15 @@ def main() -> None:
     saved_model = model.save_model(DEFAULT_MODEL_PATH)
     print(f"      [OK] Modelo exportado en: {saved_model}")
     print(
-        f"      [OK] Accuracy Test: {metrics['accuracy_modelo_nb']:.1%} "
-        f"(vs Baseline Persistencia: {metrics['accuracy_baseline_persistencia']:.1%}) | "
-        f"Macro F1: {metrics['macro_f1_modelo']:.3f} | MAE: {metrics['mae_modelo_ugm3']} ug/m3"
+        f"      [OK] Split cronologico: N_total={metrics['n_total']} | "
+        f"N_train={metrics['n_train']} | N_test={metrics['n_test']}"
+    )
+    print(
+        f"      [OK] Accuracy Test: {metrics['accuracy_modelo_nb']:.2%} "
+        f"(vs Baseline Persistencia: {metrics['accuracy_baseline_persistencia']:.2%}, "
+        f"Clase Mayoritaria: {metrics['accuracy_baseline_mayoritaria']:.2%}) | "
+        f"Macro F1: {metrics['macro_f1_modelo']:.4f} | Weighted F1: {metrics['weighted_f1_modelo']:.4f} | "
+        f"MAE: {metrics['mae_modelo_ugm3']} ug/m3 | RMSE: {metrics['rmse_modelo_ugm3']} ug/m3"
     )
 
     # Paso 4: Evaluación de las 12 preguntas del Agente (usando GROQ_API_KEY real del entorno si está disponible)
@@ -59,16 +64,30 @@ def main() -> None:
         docs_rag_dir=project_root / "docs_rag",
         model_path=saved_model,
     )
-    df_eval = run_agent_evaluation(toolkit=toolkit, api_key=None, t_max=5)
+    df_eval = run_agent_evaluation(toolkit=toolkit, api_key=None, t_max=5, verbose=True)
     eval_csv = project_root / "data" / "evaluacion_agente_12_preguntas.csv"
     df_eval.to_csv(eval_csv, index=False, encoding="utf-8")
-    print(f"      [OK] Evaluación completada y guardada en: {eval_csv}")
+    strict_hits = int((df_eval["¿Llamó Tool Correcta?"] == "Sí").sum())
+    exec_mode = df_eval["Modo de Ejecución"].iloc[0] if not df_eval.empty else "N/A"
+    print(f"      [OK] Modo de ejecucion: {exec_mode}")
+    print(
+        f"      [OK] Tool-calling estricto (igualdad de conjuntos): "
+        f"{strict_hits}/{len(df_eval)} ({strict_hits / len(df_eval):.1%})"
+    )
+    print(f"      [OK] Evaluacion completada y guardada en: {eval_csv}")
 
-    # Paso 4.5: Generar los 3 PDFs oficiales de entregables en `entregables_pdf/`
-    print("\n[4.5/5] Generando documentos PDF oficiales en `entregables_pdf/`...")
-    pdfs = generate_all_deliverable_pdfs()
-    for p in pdfs:
-        print(f"      [OK] PDF generado: {p.relative_to(project_root)}")
+    # Paso 4.5: Generar los 3 PDFs oficiales de entregables en `entregables_pdf/` (si matplotlib está disponible)
+    print("\n[4.5/5] Verificando / generando documentos PDF oficiales en `entregables_pdf/`...")
+    try:
+        from src.generate_deliverables_pdf import generate_all_deliverable_pdfs
+
+        pdfs = generate_all_deliverable_pdfs()
+        for p in pdfs:
+            print(f"      [OK] PDF actualizado: {p.relative_to(project_root)}")
+    except ImportError:
+        print("      [AVISO] `matplotlib` no esta instalado en este entorno; se conservan los PDFs existentes en `entregables_pdf/`.")
+    except Exception as exc:
+        print(f"      [AVISO] No se regeneraron los PDFs ({exc}); se conservan los PDFs existentes en `entregables_pdf/`.")
 
     # Paso 5: Lanzar Streamlit Dashboard
     print("\n[5/5] Lanzando el Dashboard interactivo en Streamlit (`src/app.py`)...")
