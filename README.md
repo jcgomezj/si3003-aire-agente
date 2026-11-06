@@ -1,7 +1,12 @@
 # Sistema Inteligente de Calidad del Aire del Valle de Aburrá (SI3003 - EAFIT)
 
-Proyecto final integrador de la asignatura **SI3003 – Inteligencia Artificial (2026-1)** en la **Universidad EAFIT**.
-Desarrolla la opción **3.1 Agente de calidad del aire del Valle de Aburrá** integrando técnicas clásicas de IA (Parte 1) con un agente basado en LLM, RAG y *tool calling* (Parte 2) en un dashboard interactivo en Streamlit.
+**Universidad EAFIT — Escuela de Ciencias Aplicadas e Ingeniería**  
+**Asignatura:** SI3003 – Inteligencia Artificial (Periodo 2026-1)  
+**Profesor:** Jorge Iván Padilla Buriticá  
+**Autores:** Juan Camilo Gómez Jiménez y Pablo Arango  
+**Repositorio Oficial:** https://github.com/jcgomezj/si3003-aire-agente  
+
+Proyecto final integrador que desarrolla la opción **3.1 Agente de calidad del aire del Valle de Aburrá**, combinando técnicas clásicas de IA (Parte 1) con un agente conversacional basado en LLM, RAG y *tool calling* (Parte 2) en un dashboard interactivo en Streamlit.
 
 ---
 
@@ -13,6 +18,10 @@ Proyecto_Final_IA/
 │   └── siata_pm25_historico.csv       # Datos históricos verificados del SIATA (Plan B resiliente)
 ├── docs_rag/
 │   └── normativa_poeca_amva.md        # Corpus normativo: Acuerdo POECA del AMVA y Res. 2254 de 2017
+├── entregables_pdf/
+│   ├── 1_Informe_Tecnico_SI3003_Gomez_Arango.pdf       # Entregable 2: Informe técnico oficial (4 páginas)
+│   ├── 2_Evaluacion_Agente_12_Preguntas_SI3003.pdf     # Entregable 4: Evaluación de las 12 preguntas del agente
+│   └── 3_Declaracion_Uso_IA_Generativa_SI3003.pdf      # Entregable 5: Declaración de uso ético de IA generativa
 ├── models/
 │   └── air_quality_model_part1.pkl    # Artefacto serializado del modelo clásico de la Parte 1 (se genera automáticamente)
 ├── notebooks/

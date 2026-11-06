@@ -1,6 +1,9 @@
 # Informe Técnico Final (Máximo 4 Páginas)
 **Asignatura:** SI3003 – Inteligencia Artificial (Periodo 2026-1) | **Universidad EAFIT**  
+**Docente:** Jorge Iván Padilla Buriticá  
+**Integrantes del Equipo:** Juan Camilo Gómez Jiménez y Pablo Arango  
 **Opción Elegida:** 3.1 Agente Inteligente de Calidad del Aire del Valle de Aburrá (SIATA / AMVA)  
+**Repositorio Oficial:** https://github.com/jcgomezj/si3003-aire-agente  
 
 ---
 

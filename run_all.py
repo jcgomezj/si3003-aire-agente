@@ -20,6 +20,7 @@ from src.agent_rag import AirQualityToolkit
 from src.data_loader import load_air_quality_data
 from src.eda import run_eda_pipeline
 from src.evaluate_agent import run_agent_evaluation
+from src.generate_deliverables_pdf import generate_all_deliverable_pdfs
 from src.model_part1 import ClassicalAirQualityModel, DEFAULT_MODEL_PATH
 
 
@@ -63,6 +64,12 @@ def main() -> None:
     eval_csv = project_root / "data" / "evaluacion_agente_12_preguntas.csv"
     df_eval.to_csv(eval_csv, index=False, encoding="utf-8")
     print(f"      [OK] Evaluación completada y guardada en: {eval_csv}")
+
+    # Paso 4.5: Generar los 3 PDFs oficiales de entregables en `entregables_pdf/`
+    print("\n[4.5/5] Generando documentos PDF oficiales en `entregables_pdf/`...")
+    pdfs = generate_all_deliverable_pdfs()
+    for p in pdfs:
+        print(f"      [OK] PDF generado: {p.relative_to(project_root)}")
 
     # Paso 5: Lanzar Streamlit Dashboard
     print("\n[5/5] Lanzando el Dashboard interactivo en Streamlit (`src/app.py`)...")
