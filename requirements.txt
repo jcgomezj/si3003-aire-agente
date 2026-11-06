@@ -1,0 +1,20 @@
+# ---- Núcleo del agente / LLM ----
+openai>=1.40.0            # cliente compatible con endpoints OpenAI (Groq, NIM, Ollama)
+python-dotenv>=1.0.1      # cargar API keys desde .env
+
+# ---- RAG ----
+chromadb>=0.5.0           # vector store local y persistente
+sentence-transformers>=3.0.0  # embeddings locales (no requiere API externa)
+
+# ---- Datos y modelo clásico ----
+pandas>=2.2.0
+numpy>=1.26.0
+scikit-learn>=1.4.0       # clasificador línea base / métrica (modelo clásico)
+
+# ---- Dashboard / UI ----
+streamlit>=1.37.0
+plotly>=5.22.0            # visualizaciones interactivas (series de tiempo, comparaciones)
+pydeck>=0.9.0             # mapa de estaciones
+
+# ---- Utilidades ----
+requests>=2.32.0          # acceso a API de datos (SIATA / plan B CSV)

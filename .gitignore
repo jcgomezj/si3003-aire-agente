@@ -218,3 +218,9 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# ---- Proyecto SI3003: aire-agente ----
+data/chroma_db/
+data/raw/*.csv
+data/processed/*.csv
+.venv/
