@@ -711,7 +711,7 @@ class AirQualityAgent:
                         continue
                     if "model_not_found" in err_str or "404" in err_str or "decommissioned" in err_str or "tool_use_failed" in err_str or "400" in err_str:
                         break
-                    break
+                    raise err
         if last_err is not None:
             raise last_err
         raise RuntimeError("No se pudo conectar con Groq API.")

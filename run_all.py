@@ -46,7 +46,7 @@ def main() -> None:
     saved_model = model.save_model(DEFAULT_MODEL_PATH)
     print(f"      [OK] Modelo exportado en: {saved_model}")
     print(
-        f"      [OK] Split cronologico: N_total={metrics['n_total']} | "
+        f"      [OK] Split cronologico: N_total={metrics['n_muestras_total']} | "
         f"N_train={metrics['n_train']} | N_test={metrics['n_test']}"
     )
     print(
@@ -66,15 +66,18 @@ def main() -> None:
     )
     df_eval = run_agent_evaluation(toolkit=toolkit, api_key=None, t_max=5, verbose=True)
     eval_csv = project_root / "data" / "evaluacion_agente_12_preguntas.csv"
-    df_eval.to_csv(eval_csv, index=False, encoding="utf-8")
     strict_hits = int((df_eval["¿Llamó Tool Correcta?"] == "Sí").sum())
     exec_mode = df_eval["Modo de Ejecución"].iloc[0] if not df_eval.empty else "N/A"
+    if "FALLBACK" in exec_mode and eval_csv.exists():
+        print(f"      [AVISO] Ejecucion sin red/key ({exec_mode}); se conserva el CSV real previo en: {eval_csv}")
+    else:
+        df_eval.to_csv(eval_csv, index=False, encoding="utf-8")
+        print(f"      [OK] Evaluacion completada y guardada en: {eval_csv}")
     print(f"      [OK] Modo de ejecucion: {exec_mode}")
     print(
         f"      [OK] Tool-calling estricto (igualdad de conjuntos): "
         f"{strict_hits}/{len(df_eval)} ({strict_hits / len(df_eval):.1%})"
     )
-    print(f"      [OK] Evaluacion completada y guardada en: {eval_csv}")
 
     # Paso 4.5: Generar los 3 PDFs oficiales de entregables en `entregables_pdf/` (si matplotlib está disponible)
     print("\n[4.5/5] Verificando / generando documentos PDF oficiales en `entregables_pdf/`...")
