@@ -52,15 +52,14 @@ def main() -> None:
         f"Macro F1: {metrics['macro_f1_modelo']:.3f} | MAE: {metrics['mae_modelo_ugm3']} ug/m3"
     )
 
-    # Paso 4: Evaluación de las 12 preguntas del Agente
+    # Paso 4: Evaluación de las 12 preguntas del Agente (usando GROQ_API_KEY real del entorno si está disponible)
     print("\n[4/5] Evaluando banco de 12 preguntas de prueba (`src/evaluate_agent.py`)...")
     toolkit = AirQualityToolkit(
         data_csv_path=project_root / "data" / "siata_pm25_historico.csv",
         docs_rag_dir=project_root / "docs_rag",
         model_path=saved_model,
     )
-    # Evaluar rápido el pipeline de herramientas y exportar reporte CSV
-    df_eval = run_agent_evaluation(toolkit=toolkit, api_key="", t_max=5)
+    df_eval = run_agent_evaluation(toolkit=toolkit, api_key=None, t_max=5)
     eval_csv = project_root / "data" / "evaluacion_agente_12_preguntas.csv"
     df_eval.to_csv(eval_csv, index=False, encoding="utf-8")
     print(f"      [OK] Evaluación completada y guardada en: {eval_csv}")

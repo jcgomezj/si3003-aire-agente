@@ -2,22 +2,28 @@
 Suite de Evaluación Experimental del Agente LLM + RAG (Entregable 4 - SI3003 Universidad EAFIT).
 
 Ejecuta un banco fijo de 12 preguntas de prueba representativas de ciudadanos del Valle de Aburrá,
-verificando cuantitativamente para cada pregunta:
-1. Qué herramientas fueron invocadas por el loop agéntico (`get_pm25`, `predict_tomorrow`, `search_docs`).
-2. Si el agente llamó a la(s) herramienta(s) esperada(s) según la intención de la pregunta.
-3. Si la respuesta citó explícitamente la fuente normativa del RAG (`normativa_poeca_amva.md` / `DOC-`).
-4. Si el manejo de errores como observación funcionó sin lanzar excepciones en preguntas con estaciones inválidas.
+verificando con rigor experimental para cada pregunta:
+1. Modo de ejecución real: usa la `GROQ_API_KEY` del entorno (`os.environ`) para evaluar el loop
+   agéntico con el LLM real en Groq. Si no hay API key o ocurre fallback, lo reporta explícitamente
+   en la columna `Modo de Ejecución` como `"MODO FALLBACK DETERMINISTA (no representa el agente LLM)"`.
+2. Criterio estricto de acierto de herramientas (Igualdad de conjuntos `set(invocadas) == set(esperadas)`):
+   solo marca `"Sí"` cuando el conjunto de herramientas llamadas coincide exactamente con el conjunto
+   esperado (sin herramientas faltantes ni herramientas sobrantes).
+3. Columna explícita `Tools Faltantes / Sobrantes` para auditar cualquier desviación del agente.
+4. Verificación de citación de fuente RAG (`normativa_poeca_amva.md` / `DOC-` / `POECA`) y captura
+   controlada de errores como observación (`Q11`).
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+import os
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 import pandas as pd
 
-from src.agent_rag import AirQualityAgent, AirQualityToolkit
+from src.agent_rag import AirQualityAgent, AirQualityToolkit, _load_env_file_if_present
 
 
 @dataclass
@@ -37,7 +43,7 @@ BENCHMARK_QUESTIONS: List[BenchmarkQuestion] = [
         pregunta="¿Cuál es el nivel actual de PM2.5 y la categoría del aire hoy en la estación de Bello?",
         estacion_contexto="U. San Buenaventura (Bello)",
         herramientas_esperadas=["get_pm25"],
-        requiere_cita_rag=True,
+        requiere_cita_rag=False,
     ),
     BenchmarkQuestion(
         id_pregunta="Q02",
@@ -45,7 +51,7 @@ BENCHMARK_QUESTIONS: List[BenchmarkQuestion] = [
         pregunta="¿Cuál es el pronóstico de PM2.5 para mañana en Itagüí según el modelo Naive Bayes y cuál es su probabilidad?",
         estacion_contexto="Casa de la Justicia (Itagüí)",
         herramientas_esperadas=["predict_tomorrow"],
-        requiere_cita_rag=True,
+        requiere_cita_rag=False,
     ),
     BenchmarkQuestion(
         id_pregunta="Q03",
@@ -77,7 +83,7 @@ BENCHMARK_QUESTIONS: List[BenchmarkQuestion] = [
         pregunta="¿Cuál es el estado latente del episodio ambiental (HMM) y la predicción de mañana para la estación de Envigado?",
         estacion_contexto="Hosp. Manuel Uribe Ángel (Envigado)",
         herramientas_esperadas=["predict_tomorrow"],
-        requiere_cita_rag=True,
+        requiere_cita_rag=False,
     ),
     BenchmarkQuestion(
         id_pregunta="Q07",
@@ -93,7 +99,7 @@ BENCHMARK_QUESTIONS: List[BenchmarkQuestion] = [
         pregunta="¿Cuál es la medición actual de PM2.5, lluvia y viento en la estación de Caldas?",
         estacion_contexto="E. Joaquín Aristizábal (Caldas)",
         herramientas_esperadas=["get_pm25"],
-        requiere_cita_rag=True,
+        requiere_cita_rag=False,
     ),
     BenchmarkQuestion(
         id_pregunta="Q09",
@@ -117,7 +123,7 @@ BENCHMARK_QUESTIONS: List[BenchmarkQuestion] = [
         pregunta="¿Cuál es el nivel actual de PM2.5 hoy en la estación de Bogotá Norte?",
         estacion_contexto="Museo de Antioquia (Centro)",
         herramientas_esperadas=["get_pm25"],
-        requiere_cita_rag=True,
+        requiere_cita_rag=False,
     ),
     BenchmarkQuestion(
         id_pregunta="Q12",
@@ -132,39 +138,71 @@ BENCHMARK_QUESTIONS: List[BenchmarkQuestion] = [
 
 def run_agent_evaluation(
     toolkit: AirQualityToolkit,
-    api_key: str = "",
-    model_name: str = "llama-3.3-70b-versatile",
+    api_key: Optional[str] = None,
+    model_name: str = "openai/gpt-oss-120b",
     t_max: int = 5,
 ) -> pd.DataFrame:
     """
-    Ejecuta las 12 preguntas de prueba sobre el agente y construye una tabla de evaluación
-    lista para incluir en el informe final y visualizar en el dashboard.
+    Ejecuta las 12 preguntas de prueba sobre el agente usando la `GROQ_API_KEY` del entorno
+    cuando esté disponible, y evalúa con igualdad estricta de conjuntos las herramientas invocadas.
     """
-    agent = AirQualityAgent(toolkit=toolkit, api_key=api_key, model_name=model_name, t_max=t_max)
+    _load_env_file_if_present()
+    effective_key = api_key if api_key is not None else os.environ.get("GROQ_API_KEY", "").strip()
+    effective_model = os.environ.get("GROQ_MODEL", model_name)
+
+    agent = AirQualityAgent(
+        toolkit=toolkit,
+        api_key=effective_key,
+        model_name=effective_model,
+        t_max=t_max,
+    )
     records = []
 
     for item in BENCHMARK_QUESTIONS:
         resp = agent.run(user_query=item.pregunta, default_station=item.estacion_contexto)
         called_tools = [step.tool_name for step in resp.steps]
 
-        # Verificar si todas las herramientas esperadas fueron invocadas
-        expected_called = all(exp_t in called_tools for exp_t in item.herramientas_esperadas)
+        expected_set = set(item.herramientas_esperadas)
+        called_set = set(called_tools)
 
-        # Verificar si la respuesta cita explícitamente el corpus normativo
+        # Criterio estricto: IGUALDAD de conjuntos entre herramientas esperadas e invocadas
+        strict_match = called_set == expected_set
+
+        missing_tools = sorted(list(expected_set - called_set))
+        extra_tools = sorted(list(called_set - expected_set))
+        diff_parts = []
+        if missing_tools:
+            diff_parts.append(f"Faltantes: {', '.join(missing_tools)}")
+        if extra_tools:
+            diff_parts.append(f"Sobrantes: {', '.join(extra_tools)}")
+        diff_str = "Ninguna (Exacto)" if not diff_parts else " | ".join(diff_parts)
+
+        # Verificar citación de fuente normativa cuando se invocó search_docs o en la respuesta
         ans_lower = resp.final_answer.lower()
-        cited_source = ("normativa_poeca_amva.md" in ans_lower) or ("doc-" in ans_lower) or ("poeca" in ans_lower)
+        cited_source = (
+            ("normativa_poeca_amva.md" in ans_lower)
+            or ("doc-" in ans_lower)
+            or ("poeca" in ans_lower)
+            or ("2254" in ans_lower)
+        )
 
-        # Verificar si capturó limpiamente una observación de error cuando correspondía
         handled_error_obs = any("OBSERVACIÓN DE ERROR" in step.observation for step in resp.steps)
+
+        if resp.used_fallback_mode or not effective_key:
+            exec_mode = "MODO FALLBACK DETERMINISTA (no representa el agente LLM)"
+        else:
+            exec_mode = f"AGENTE LLM REAL (Groq: {effective_model})"
 
         records.append({
             "ID": item.id_pregunta,
             "Categoría": item.categoria_prueba,
+            "Modo de Ejecución": exec_mode,
             "Pregunta de Prueba": item.pregunta,
             "Herramientas Esperadas": ", ".join(item.herramientas_esperadas),
             "Herramientas Invocadas": ", ".join(called_tools) if called_tools else "Ninguna",
-            "¿Llamó Tool Correcta?": "Sí" if expected_called else "No",
-            "¿Citó Fuente RAG?": "Sí" if cited_source else "No",
+            "¿Llamó Tool Correcta?": "Sí" if strict_match else "No",
+            "Tools Faltantes / Sobrantes": diff_str,
+            "¿Citó Fuente RAG?": "Sí" if cited_source else ("No (No requería RAG)" if not item.requiere_cita_rag else "No"),
             "Iteraciones Usadas": f"{resp.iterations_used}/{t_max}",
             "Observación de Error Capturada": "Sí (Controlado)" if handled_error_obs else "No aplica",
         })
@@ -184,4 +222,3 @@ if __name__ == "__main__":
     out_csv = project_root / "data" / "evaluacion_agente_12_preguntas.csv"
     df_results.to_csv(out_csv, index=False, encoding="utf-8")
     print(f"\nArchivo exportado exitosamente en: {out_csv}")
-

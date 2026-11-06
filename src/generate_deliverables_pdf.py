@@ -645,23 +645,24 @@ def generate_agent_evaluation_pdf(output_pdf_path: Path, df_eval: pd.DataFrame) 
         y = _draw_wrapped_paragraph(ax, 0.06, y, intro_eval, width_chars=112, fontsize=8.4, line_spacing=0.0145)
 
         # Tabla con las 12 preguntas de prueba
-        ax_tbl = fig.add_axes([0.05, 0.13, 0.90, 0.56])
+        ax_tbl = fig.add_axes([0.04, 0.13, 0.92, 0.56])
         ax_tbl.axis("off")
 
-        cols = ["ID", "Categoría", "Pregunta de Prueba (Resumen)", "Tools Esperadas", "Tools Invocadas", "¿Tool OK?", "¿Citó RAG?", "Pasos"]
+        cols = ["ID", "Modo de Ejecución", "Pregunta (Resumen)", "Tools Esperadas", "Tools Invocadas", "¿Exacta?", "Faltantes/Sobrantes", "Pasos"]
         rows = []
         for _, r in df_eval.iterrows():
             q_short = str(r["Pregunta de Prueba"])
-            if len(q_short) > 64:
-                q_short = q_short[:61] + "..."
+            if len(q_short) > 46:
+                q_short = q_short[:43] + "..."
+            mode_short = "LLM Real (Groq)" if "REAL" in str(r.get("Modo de Ejecución", "")) else "Fallback Det."
             rows.append([
                 str(r["ID"]),
-                str(r["Categoría"])[:24],
+                mode_short,
                 q_short,
                 str(r["Herramientas Esperadas"]),
                 str(r["Herramientas Invocadas"]),
                 str(r["¿Llamó Tool Correcta?"]),
-                str(r["¿Citó Fuente RAG?"]),
+                str(r.get("Tools Faltantes / Sobrantes", "Ninguna")),
                 str(r["Iteraciones Usadas"]),
             ])
 
@@ -670,10 +671,10 @@ def generate_agent_evaluation_pdf(output_pdf_path: Path, df_eval: pd.DataFrame) 
             colLabels=cols,
             loc="center",
             cellLoc="center",
-            colWidths=[0.045, 0.155, 0.30, 0.14, 0.16, 0.07, 0.07, 0.06],
+            colWidths=[0.04, 0.12, 0.25, 0.15, 0.16, 0.06, 0.16, 0.06],
         )
         tbl.auto_set_font_size(False)
-        tbl.set_fontsize(6.6)
+        tbl.set_fontsize(6.3)
         tbl.scale(1.0, 1.55)
         for (r_i, c_i), cell in tbl.get_celld().items():
             cell.set_edgecolor(BORDER_GRAY)
@@ -685,12 +686,14 @@ def generate_agent_evaluation_pdf(output_pdf_path: Path, df_eval: pd.DataFrame) 
             else:
                 cell.set_facecolor("#ffffff" if r_i % 2 == 1 else "#f8fafc")
 
+        strict_acc = (df_eval["¿Llamó Tool Correcta?"].astype(str) == "Sí").mean()
+        n_exact = int((df_eval["¿Llamó Tool Correcta?"].astype(str) == "Sí").sum())
         ax.text(
             0.06,
             0.105,
-            "Resumen Global de Métricas del Agente:   • Precisión en Tool Calling: 100% (12/12)   |   • Tasa de Citación RAG: 100% (12/12)   |   "
-            "• Captura de Error como Observación (Q11 - Estación inexistente 'Bogotá Norte'): Exitosa sin caída del sistema.",
-            fontsize=8.3,
+            f"Resumen Global (Criterio Estricto de Igualdad de Conjuntos):   • Acierto Exacto en Tool Calling: {strict_acc:.1%} ({n_exact}/12)   |   "
+            "• Captura de Error como Observación (Q11 - 'Bogotá Norte'): Exitosa.",
+            fontsize=8.1,
             fontweight="bold",
             color=NAVY_PRIMARY,
             va="top",
@@ -840,22 +843,30 @@ def generate_all_deliverable_pdfs() -> List[Path]:
         docs_rag_dir=project_root / "docs_rag",
         model_path=DEFAULT_MODEL_PATH,
     )
-    df_eval = run_agent_evaluation(toolkit=toolkit, api_key="", t_max=5)
+    eval_csv = project_root / "data" / "evaluacion_agente_12_preguntas.csv"
+    if eval_csv.exists():
+        df_eval = pd.read_csv(eval_csv)
+    else:
+        df_eval = run_agent_evaluation(toolkit=toolkit, api_key=None, t_max=5)
+        df_eval.to_csv(eval_csv, index=False, encoding="utf-8")
 
-    pdf1 = generate_4page_technical_report(
-        out_dir / "1_Informe_Tecnico_SI3003_Gomez_Arango.pdf",
-        df=df,
-        summary_eda=summary_eda,
-        metrics=metrics,
-        df_eval=df_eval,
-    )
-    pdf2 = generate_agent_evaluation_pdf(
-        out_dir / "2_Evaluacion_Agente_12_Preguntas_SI3003.pdf",
-        df_eval=df_eval,
-    )
-    pdf3 = generate_ai_declaration_pdf(
-        out_dir / "3_Declaracion_Uso_IA_Generativa_SI3003.pdf",
-    )
+    custom_report = out_dir / "Informe_breve_calidad_aire_SI3003_estilo_original.pdf"
+    if custom_report.exists():
+        pdf1 = custom_report
+    else:
+        pdf1 = generate_4page_technical_report(
+            custom_report,
+            df=df,
+            summary_eda=summary_eda,
+            metrics=metrics,
+            df_eval=df_eval,
+        )
+
+    pdf2_path = out_dir / "2_Evaluacion_Agente_12_Preguntas_SI3003.pdf"
+    pdf2 = generate_agent_evaluation_pdf(pdf2_path, df_eval=df_eval)
+
+    pdf3_path = out_dir / "3_Declaracion_Uso_IA_Generativa_SI3003.pdf"
+    pdf3 = pdf3_path if pdf3_path.exists() else generate_ai_declaration_pdf(pdf3_path)
     return [pdf1, pdf2, pdf3]
 
 

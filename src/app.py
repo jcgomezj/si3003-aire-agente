@@ -267,7 +267,7 @@ def render_dashboard() -> None:
             )
             groq_model = st.selectbox(
                 "Modelo de lenguaje:",
-                options=["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "llama3-70b-8192"],
+                options=["openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3.8-27b", "llama-3.3-70b-versatile"],
                 index=0,
             )
             t_max = st.slider(
@@ -598,23 +598,35 @@ def render_dashboard() -> None:
             "Verificación automática del comportamiento del agente frente a 12 preguntas representativas, "
             "evaluando si seleccionó la herramienta adecuada, si citó la fuente normativa POECA y cómo gestionó errores."
         )
-        if st.button("Ejecutar evaluación de las 12 preguntas de prueba"):
-            with st.spinner("Ejecutando banco de 12 preguntas de prueba..."):
+        if st.button("Ejecutar evaluación de las 12 preguntas de prueba (Agente LLM Real)"):
+            with st.spinner("Ejecutando banco de 12 preguntas de prueba con el Agente LLM..."):
                 st.session_state.df_eval_results = run_agent_evaluation(
                     toolkit=toolkit,
-                    api_key="",
+                    api_key=groq_api_key if groq_api_key else None,
+                    model_name=groq_model,
+                    t_max=t_max,
+                )
+                st.session_state.df_eval_results.to_csv(
+                    PROJECT_ROOT / "data" / "evaluacion_agente_12_preguntas.csv",
+                    index=False,
+                    encoding="utf-8",
+                )
+
+        if "df_eval_results" not in st.session_state:
+            eval_csv_path = PROJECT_ROOT / "data" / "evaluacion_agente_12_preguntas.csv"
+            if eval_csv_path.exists():
+                st.session_state.df_eval_results = pd.read_csv(eval_csv_path)
+            else:
+                st.session_state.df_eval_results = run_agent_evaluation(
+                    toolkit=toolkit,
+                    api_key=groq_api_key if groq_api_key else None,
                     model_name=groq_model,
                     t_max=t_max,
                 )
 
-        if "df_eval_results" not in st.session_state:
-            st.session_state.df_eval_results = run_agent_evaluation(
-                toolkit=toolkit, api_key="", model_name=groq_model, t_max=t_max
-            )
-
         df_eval_show = st.session_state.df_eval_results
-        tool_hit_rate = (df_eval_show["¿Llamó Tool Correcta?"].astype(str).str.contains("Sí")).mean()
-        cite_hit_rate = (df_eval_show["¿Citó Fuente RAG?"].astype(str).str.contains("Sí")).mean()
+        tool_hit_rate = (df_eval_show["¿Llamó Tool Correcta?"].astype(str) == "Sí").mean()
+        cite_hit_rate = (df_eval_show["¿Citó Fuente RAG?"].astype(str) == "Sí").mean()
 
         e_col1, e_col2, e_col3 = st.columns(3)
         e_col1.metric("Preguntas de Prueba Evaluadas", f"{len(df_eval_show)}")

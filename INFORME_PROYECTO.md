@@ -14,14 +14,14 @@ El Valle de Aburrá es una cuenca estrecha y semicerrada de los Andes centrales 
 1. No comprenden el significado sanitario de las concentraciones de $PM_{2.5}$ ($\mu g/m^3$ en promedio móvil de 24 horas) ni cómo las condiciones meteorológicas (lluvia y viento) afectarán la calidad del aire al día siguiente.
 2. Desconocen qué medidas preventivas específicas recomienda el **Protocolo POECA** (Plan Operacional para Enfrentar Episodios de Contaminación Atmosférica) según si pertenecen a la población general o a grupos sensibles (niños, adultos mayores, gestantes y pacientes cardiorrespiratorios).
 
-### 1.2 Datos Reales y Estrategia de Resiliencia (Plan B)
-El módulo [`src/data_loader.py`](file:///c:/Users/camil/vs%20projects/Proyecto_Final_IA/src/data_loader.py) implementa un esquema híbrido de adquisición y limpieza de datos:
-* **Fuentes Primarias:** Red de monitoreo de calidad del aire y meteorología del **SIATA / Área Metropolitana del Valle de Aburrá (AMVA)** y el portal de **Datos Abiertos de Colombia (`datos.gov.co`)**.
-* **Plan B Local Verificado (`data/siata_pm25_historico.csv`):** Ante caídas de red, límites de tasa o cambios en el endpoint externo durante la demostración, el sistema conmuta automáticamente al archivo local con series históricas diarias de **6 estaciones representativas de Norte a Sur del Valle de Aburrá**: *U. San Buenaventura (Bello)*, *Museo de Antioquia (Medellín Centro)*, *Tanques EPM (El Poblado)*, *Hosp. Manuel Uribe Ángel (Envigado)*, *Casa de la Justicia (Itagüí)* y *E. Joaquín Aristizábal (Caldas)*.
+### 1.2 Fuentes de Datos, Transparencia sobre el Dataset Sintético (Plan B) y Conexión Real al SIATA
+El módulo [`src/data_loader.py`](file:///c:/Users/camil/vs%20projects/Proyecto_Final_IA/src/data_loader.py) implementa un esquema de adquisición y limpieza de datos documentado con total transparencia metodológica:
+* **Transparencia sobre el dataset local (`data/siata_pm25_historico.csv` — Plan B):** Por defecto (`prefer_local_plan_b=True`), el sistema utiliza el archivo local `data/siata_pm25_historico.csv` ($360$ registros = $60$ días $\times\ 6$ estaciones), el cual es un **dataset sintético con acoplamiento físico** generado mediante `generate_enriched_historical_dataset(seed=42)` en [`src/data_loader.py`](file:///c:/Users/camil/vs%20projects/Proyecto_Final_IA/src/data_loader.py#L81-L143). Este generador modela explícitamente las coordenadas reales de 6 estaciones del SIATA de Norte a Sur del Valle de Aburrá (*Bello, Medellín Centro, El Poblado, Envigado, Itagüí y Caldas*), la autocorrelación temporal del $PM_{2.5}$, la onda sinóptica de transición climática, el lavado atmosférico por precipitación (`precipitacion_mm`) y la dispersión por velocidad del viento (`velocidad_viento_ms`). Se emplea como **Plan B reproducible** para garantizar que el entrenamiento y la demostración no dependan de la disponibilidad de red ni de cambios en APIs externas.
+* **Cómo conectar la fuente real del SIATA / `datos.gov.co`:** La función [`try_fetch_siata_or_datos_gov()`](file:///c:/Users/camil/vs%20projects/Proyecto_Final_IA/src/data_loader.py#L146-L160) en `src/data_loader.py` incluye el conector HTTP hacia el endpoint Socrata de Datos Abiertos de Colombia (`https://www.datos.gov.co/resource/7cci-n3mm.json`) y puede activarse pasando `load_air_quality_data(prefer_local_plan_b=False)` o descargando los archivos históricos horarios/diarios desde el portal de datos abiertos del SIATA (`https://siata.gov.co/descarga_siata/`) y colocándolos en `data/siata_pm25_historico.csv` con el mismo esquema de columnas.
 * **Pipeline de Preprocesamiento (`clean_and_preprocess_data`):**
   1. Estandarización temporal (`YYYY-MM-DD`), eliminación de duplicados por par `(station_id, date)` y validación de rangos físicos ($PM_{2.5} \in [0, 500]\ \mu g/m^3$, precipitación $\in [0, 300]\ mm$, viento $\in (0, 30]\ m/s$).
   2. Imputación de datos faltantes mediante interpolación lineal temporal intragrupo por estación.
-  3. Ingeniería de características temporales: media móvil de 3 días (`pm25_ma3`), gradiente diario ($\Delta PM_{2.5} = PM_{2.5, t} - PM_{2.5, t-1}$) y construcción de objetivos supervisados en $t+1$ (`target_pm25_next`, `target_categoria_ica_next` según la **Resolución 2254 de 2017** y `target_estado_poeca_next`).
+  3. Ingeniería de características temporales: media móvil de 3 días (`pm25_ma3`), gradiente diario ($\Delta PM_{2.5} = PM_{2.5, t} - PM_{2.5, t-1}$) y construcción de objetivos supervisados en $t+1$ (`target_pm25_next`, `target_categoria_ica_next` según la **Resolución 2254 de 2017** y `target_estado_poeca_next`). Al desplazar un día hacia adelante ($t \rightarrow t+1$) en las 6 estaciones, los $360$ registros diarios producen exactamente **$N_{\text{total}} = 354$ pares supervisados de transición** ($360 - 6 = 354$).
 
 ---
 
@@ -68,23 +68,28 @@ flowchart LR
 ## 4. Resultados Experimentales, Evaluación del Agente y Limitaciones
 
 ### 4.1 Evaluación Cuantitativa de la Parte 1 frente a Líneas Base
-Utilizando una **partición temporal estricta (75% Entrenamiento cronológico / 25% Prueba futura)** sobre las transiciones diarias de las 6 estaciones del SIATA ($N = 354$ pares supervisados), se comparó el modelo de la Parte 1 frente a dos líneas base formales:
+Utilizando una **partición temporal estricta (75% Entrenamiento cronológico / 25% Prueba futura)** sobre los **$N_{\text{total}} = 354$ pares supervisados de transición diaria** de las 6 estaciones ($N_{\text{train}} = 265$ muestras de entrenamiento y $N_{\text{test}} = 89$ muestras de prueba en las fechas más recientes), se comparó el modelo de la Parte 1 frente a dos líneas base formales en el conjunto de prueba ($N_{\text{test}} = 89$):
 1. **Baseline 1 (Persistencia):** Asume que la categoría y concentración de mañana serán idénticas a las de hoy ($\hat{C}_{t+1} = C_t$, $\widehat{\text{PM2.5}}_{t+1} = \text{PM2.5}_t$).
-2. **Baseline 2 (Clase Mayoritaria):** Predice siempre la categoría más frecuente del histórico (*Moderada*).
+2. **Baseline 2 (Clase Mayoritaria):** Predice siempre la categoría más frecuente del conjunto de entrenamiento (*Moderada*).
 
-| Modelo / Método Evaluado | Accuracy (Test) | Macro F1-Score | Weighted F1-Score | MAE ($\mu g/m^3$) |
-| :--- | :---: | :---: | :---: | :---: |
-| **Baseline 2: Clase Mayoritaria** | 59.6% | 0.249 | 0.445 | N/A |
-| **Baseline 1: Persistencia ($\hat{y}_{t+1} = y_t$)** | 74.2% | 0.618 | 0.739 | 4.85 $\mu g/m^3$ |
-| **Modelo Parte 1 (Híbrido Naive Bayes + Ridge + Meteorología)** | **85.4%** | **0.792** | **0.853** | **3.12 $\mu g/m^3$** |
+| Modelo / Método Evaluado ($N_{\text{test}} = 89$, $N_{\text{train}} = 265$, $N_{\text{total}} = 354$) | Accuracy (Test) | Macro F1-Score | Weighted F1-Score | MAE ($\mu g/m^3$) | RMSE ($\mu g/m^3$) |
+| :--- | :---: | :---: | :---: | :---: | :---: |
+| **Baseline 2: Clase Mayoritaria** | 43.82% | 0.2031 | N/A | N/A | N/A |
+| **Baseline 1: Persistencia ($\hat{y}_{t+1} = y_t$)** | 71.91% | 0.7169 | 0.7195 | 4.25 $\mu g/m^3$ | N/A |
+| **Modelo Parte 1 (Híbrido Naive Bayes + Ridge + Meteorología)** | **78.65%** | **0.7392** | **0.7873** | **3.26 $\mu g/m^3$** | **4.03 $\mu g/m^3$** |
 
-**Análisis de resultados:** Incorporar la lluvia ($r < 0$ por lavado húmedo) y la velocidad del viento permite anticipar los cambios de categoría (especialmente las salidas de episodios *Naranja* tras lluvias nocturnas y las entradas a *Alerta* en días secos y calmos), superando a la línea base de persistencia en **+11.2 puntos porcentuales de Accuracy** y reduciendo el error absoluto medio (MAE) en **1.73 $\mu g/m^3$**.
+* **F1-Score por clase en Test ($N_{\text{test}} = 89$):** *Buena*: `0.8205` | *Moderada*: `0.7816` | *Dañina a Grupos Sensibles*: `0.6154`.
+* **Matriz de confusión en Test (filas = real, columnas = predicho en orden `[Buena, Dañina a Grupos Sensibles, Moderada]`):** `[[32, 0, 11], [0, 4, 3], [3, 2, 34]]`.
+* **Análisis de resultados:** Incorporar la lluvia y la velocidad del viento permite anticipar los cambios de categoría tras lluvias nocturnas o vientos de ventilación, superando a la línea base de persistencia en **+6.74 puntos porcentuales de Accuracy** (`78.65%` vs `71.91%`), mejorando el **Weighted F1-Score** de `0.7195` a `0.7873` y reduciendo el error absoluto medio (**MAE**) de `4.25` a **`3.26 µg/m³`**.
 
-### 4.2 Evaluación Sistemática del Agente (12 Preguntas de Prueba)
-El módulo [`src/evaluate_agent.py`](file:///c:/Users/camil/vs%20projects/Proyecto_Final_IA/src/evaluate_agent.py) evalúa al agente en un benchmark fijo de **12 preguntas (`Q01`–`Q12`)** que cubren consultas actuales, predicciones del día siguiente, normativa POECA, consultas multiherramienta y pruebas de estrés con estaciones inexistentes (*Bogotá Norte*):
-* **Selección correcta de herramientas (*Tool Calling Accuracy*):** **100% (12/12)** de las preguntas invocaron las herramientas requeridas dentro del presupuesto $T_{\max} = 5$.
-* **Fidelidad y Citación del RAG:** **100% (12/12)** de las respuestas incluyeron referencia explícita a la normativa (`normativa_poeca_amva.md` / `POECA`).
-* **Recuperación ante errores (`Q11`):** Ante la estación inválida *Bogotá Norte*, `get_pm25` devolvió `OBSERVACIÓN DE ERROR [get_pm25]: No se encontró la estación...` y el agente informó al usuario las estaciones válidas del Valle de Aburrá sin colapsar.
+### 4.2 Evaluación Sistemática del Agente LLM Real (12 Preguntas de Prueba)
+El módulo [`src/evaluate_agent.py`](file:///c:/Users/camil/vs%20projects/Proyecto_Final_IA/src/evaluate_agent.py) evalúa al agente real en Groq (`openai/gpt-oss-120b` invocado mediante `GROQ_API_KEY`) sobre el benchmark fijo de **12 preguntas (`Q01`–`Q12`)**, exigiendo **igualdad estricta de conjuntos** (`set(invocadas) == set(esperadas)`) entre las herramientas esperadas y las efectivamente llamadas por el LLM:
+* **Ejecución con Agente LLM Real:** **100% (12/12 preguntas)** fueron procesadas por el loop agéntico real en Groq (`AGENTE LLM REAL (Groq: openai/gpt-oss-120b)`).
+* **Acierto estricto en selección de herramientas (*Strict Tool-Matching Accuracy*):** **91.7% (11/12)**. En 11 de las 12 preguntas (`Q01` a `Q10` y `Q12`) el conjunto de herramientas invocadas por el LLM coincidió exactamente con el conjunto esperado (`Ninguna (Exacto)` en herramientas faltantes/sobrantes).
+* **Análisis honesto de `Q04` y `Q11`:**
+  - En **`Q04`** (*"Vivo en el Centro de Medellín y tengo asma..."*), el LLM llamó primero a `get_pm25(estacion="Centro de Medellín")`, la herramienta devolvió `OBSERVACIÓN DE ERROR [get_pm25]` porque el nombre en la tabla es `"Museo de Antioquia (Centro)"` o municipio `"Medellín"`, y en la siguiente iteración del loop el LLM **se autorrecuperó** llamando a `get_pm25(estacion="Centro")`, `predict_tomorrow(estacion="Centro")` y `search_docs(...)`, completando exactamente el conjunto esperado `{get_pm25, predict_tomorrow, search_docs}` en `5/5` iteraciones.
+  - En **`Q11`** (*"¿Cuál es el nivel actual de PM2.5 hoy en la estación de Bogotá Norte?"*), el LLM identificó desde su razonamiento que *Bogotá Norte* no pertenece al Valle de Aburrá y rechazó la consulta directamente sin invocar `get_pm25` (`Herramientas Invocadas = Ninguna`, `Faltantes: get_pm25`), por lo que bajo el criterio estricto de igualdad de conjuntos se contabiliza como `No` (`11/12 = 91.7%`).
+* **Fidelidad y Citación del RAG:** **100% (11/11)** de las consultas válidas del Valle de Aburrá incluyeron referencia explícita a la normativa (`normativa_poeca_amva.md` / `POECA` / `Resolución 2254`).
 
 ### 4.3 Limitaciones y Consideraciones Éticas
 1. **Resolución espacial y meteorológica:** El modelo opera con promedios diarios por estación y no reemplaza modelos fotoquímicos tridimensionales de dispersión atmosférica (como WRF-Chem).

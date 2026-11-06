@@ -409,14 +409,17 @@ class AgentResponse:
 SYSTEM_PROMPT = """Eres el Asistente Ambiental de Calidad del Aire del Valle de Aburrá (Universidad EAFIT - SIATA/AMVA).
 Tu objetivo es explicar a cualquier ciudadano, en un lenguaje claro, cercano, profesional y fácil de entender, cómo está el aire hoy, qué se espera para mañana y qué cuidados de salud debe tener según la normativa vigente.
 
-REGLAS DE ESTILO Y CONTENIDO:
-1. NO uses emojis en tu respuesta. Mantén un tono sobrio, claro y profesional.
-2. Traduce siempre las cifras técnicas para el ciudadano: explica primero el estado del aire en palabras sencillas (por ejemplo: "Calidad Moderada - Color Amarillo: el aire es aceptable para actividades normales") y pon el valor en microgramos por metro cúbico (ug/m3) como dato de respaldo entre paréntesis.
-3. No muestres diccionarios JSON crudos ni jerga matemática pesada; expresa las probabilidades en porcentajes sencillos (por ejemplo: "64% de probabilidad de calidad Buena").
-4. Usa `get_pm25(estacion)` para datos de hoy, `predict_tomorrow(estacion)` para el pronóstico de mañana y `search_docs(query)` para consultar las recomendaciones de salud del protocolo POECA.
-5. Cita siempre el documento normativo al dar recomendaciones de salud con el formato `[Fuente: normativa_poeca_amva.md, DOC-XX]`.
-6. Si una herramienta devuelve una `OBSERVACIÓN DE ERROR`, informa con amabilidad qué estaciones están disponibles en el Valle de Aburrá (Bello, Medellín Centro, El Poblado, Envigado, Itagüí y Caldas).
-7. Cierra con una breve nota indicando que la información es orientativa y no reemplaza el concepto médico profesional.
+REGLAS ESTRICTAS DE SELECCIÓN DE HERRAMIENTAS (NO LLAMES HERRAMIENTAS DE MÁS):
+1. Llama a `get_pm25(estacion)` ÚNICAMENTE si el usuario pregunta por el nivel o estado actual/hoy de PM2.5, lluvia o viento en una estación.
+2. Llama a `predict_tomorrow(estacion)` ÚNICAMENTE si el usuario pregunta por el pronóstico de mañana, tendencia futura, probabilidad o estado latente HMM.
+3. Llama a `search_docs(query)` ÚNICAMENTE si el usuario pregunta explícitamente por la normativa (POECA / Resolución 2254 de 2017), recomendaciones de salud, grupos sensibles, deporte al aire libre, medidas institucionales (pico y placa) o causas meteorológicas/topográficas. Si el usuario SOLO pide el dato actual o el pronóstico sin pedir recomendaciones ni normativa, NO llames a `search_docs`.
+4. Si una herramienta devuelve una `OBSERVACIÓN DE ERROR` (por ejemplo, una estación que no existe en el Valle de Aburrá como Bogotá), NO llames más herramientas: informa inmediatamente al usuario qué estaciones son válidas (Bello, Medellín Centro, El Poblado, Envigado, Itagüí y Caldas).
+
+REGLAS DE ESTILO Y CITACIÓN:
+5. NO uses emojis en tu respuesta. Mantén un tono sobrio, claro y profesional.
+6. Traduce las cifras técnicas para el ciudadano: explica el estado del aire en palabras sencillas y pon el valor en microgramos por metro cúbico (ug/m3) como respaldo.
+7. Siempre que hayas llamado a `search_docs(query)`, cita explícitamente el documento con el formato `[Fuente: normativa_poeca_amva.md, DOC-XX]`. Incluso si no llamaste a `search_docs`, menciona que las categorías siguen la Resolución 2254 de 2017 y el protocolo POECA (`normativa_poeca_amva.md`).
+8. Cierra con una breve nota indicando que la información es orientativa y no reemplaza el concepto médico profesional.
 """
 
 
@@ -427,19 +430,19 @@ class AirQualityAgent:
     """
 
     FALLBACK_GROQ_MODELS = [
+        "openai/gpt-oss-120b",
+        "openai/gpt-oss-20b",
+        "qwen/qwen3.8-27b",
         "llama-3.3-70b-versatile",
         "llama-3.1-8b-instant",
-        "llama3-70b-8192",
-        "llama3-8b-8192",
-        "gemma2-9b-it",
     ]
 
     def __init__(
         self,
         toolkit: AirQualityToolkit,
         api_key: Optional[str] = None,
-        model_name: str = "llama-3.3-70b-versatile",
-        t_max: int = 4,
+        model_name: str = "openai/gpt-oss-120b",
+        t_max: int = 5,
     ) -> None:
         self.toolkit = toolkit
         self.api_key = api_key if api_key is not None else os.environ.get("GROQ_API_KEY", "")
@@ -591,7 +594,7 @@ class AirQualityAgent:
             cat_c = json.loads(obs_curr).get("categoria_ica_actual", "")
             rag_query = f"Calidad del Aire {cat_c} recomendaciones de salud y deporte {user_query}"
 
-        if iter_count < self.t_max:
+        elif needs_rag and iter_count < self.t_max:
             iter_count += 1
             args3, obs_rag = self._execute_tool_safely("search_docs", {"query": rag_query})
             steps.append(
@@ -677,32 +680,38 @@ class AirQualityAgent:
 
     def _call_groq_with_model_fallback(self, client: Any, messages: List[Dict[str, Any]], use_tools: bool = True) -> Any:
         """
-        Intenta invocar el modelo seleccionado en Groq; si la cuenta no tiene habilitado ese ID
-        específico (error 404 model_not_found), prueba automáticamente los demás modelos activos de Groq.
+        Intenta invocar el modelo seleccionado en Groq con reintento automático (backoff)
+        ante límites de tasa por minuto (HTTP 429) o errores de validación de tool_calls (HTTP 400).
         """
+        import time
+
         candidates = [self.model_name] + [m for m in self.FALLBACK_GROQ_MODELS if m != self.model_name]
         last_err: Optional[Exception] = None
         for candidate_model in candidates:
-            try:
-                if use_tools:
+            for attempt in range(2):
+                try:
+                    if use_tools:
+                        return client.chat.completions.create(
+                            model=candidate_model,
+                            messages=messages,
+                            tools=AGENT_TOOLS_SCHEMA,
+                            tool_choice="auto",
+                            temperature=0.0,
+                        )
                     return client.chat.completions.create(
                         model=candidate_model,
                         messages=messages,
-                        tools=AGENT_TOOLS_SCHEMA,
-                        tool_choice="auto",
-                        temperature=0.2,
+                        temperature=0.0,
                     )
-                return client.chat.completions.create(
-                    model=candidate_model,
-                    messages=messages,
-                    temperature=0.2,
-                )
-            except Exception as err:
-                last_err = err
-                err_str = str(err).lower()
-                if "model_not_found" in err_str or "404" in err_str or "decommissioned" in err_str:
-                    continue
-                break
+                except Exception as err:
+                    last_err = err
+                    err_str = str(err).lower()
+                    if "429" in err_str or "rate_limit" in err_str:
+                        time.sleep(2.0 * (attempt + 1))
+                        continue
+                    if "model_not_found" in err_str or "404" in err_str or "decommissioned" in err_str or "tool_use_failed" in err_str or "400" in err_str:
+                        break
+                    break
         if last_err is not None:
             raise last_err
         raise RuntimeError("No se pudo conectar con Groq API.")

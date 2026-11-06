@@ -39,15 +39,21 @@ Proyecto_Final_IA/
 └── README.md                          # Instrucciones de instalación, ejecución y declaración de IA
 ```
 
-### Integración No Trivial Parte 1 + Parte 2
-1. **Parte 1 (`src/model_part1.py`):** Implementación propia desde cero en NumPy de un clasificador **Gaussian Naive Bayes** que modela $P(\text{Categoría}_{t+1} \mid PM_{2.5,t}, \text{Lluvia}_t, \text{Viento}_t)$, una regresión regularizada L2 para estimar el valor esperado de $PM_{2.5, t+1}$ y un **Filtro de Markov (HMM)** de 3 estados latentes (*Normal*, *Alerta / Prevención*, *Episodio Crítico*). Se evalúa cuantitativamente con *Accuracy* y *MAE* frente a una línea base de persistencia ($PM_{2.5, t+1} = PM_{2.5, t}$).
-2. **Parte 2 (`src/agent_rag.py`):**
-   - **Loop Agéntico Manual:** Controla explícitamente el ciclo $\text{Pensamiento} \rightarrow \text{Llamada a Herramienta} \rightarrow \text{Observación}$ con un límite estricto de iteraciones $T_{\max}$ (por defecto $T_{\max}=5$) usando la API de **Groq** (`llama-3.3-70b-versatile`).
-   - **Tres herramientas con manejo robusto de errores:**
-     1. `get_pm25(estacion)`: Consulta mediciones actuales y resumen reciente de estaciones del SIATA.
-     2. `predict_tomorrow(estacion)`: Invoca el modelo clásico de la Parte 1 y devuelve la categoría predicha, probabilidades de clase y estado latente HMM.
-     3. `search_docs(query)`: Realiza búsqueda vectorial con **FAISS** (`IndexFlatIP`) sobre `docs_rag/normativa_poeca_amva.md` devolviendo citas verificables.
-   - **Manejo de errores como observación:** Cualquier fallo de validación o estación inexistente es capturado y retornado como `OBSERVACIÓN DE ERROR [...]` para que el LLM se recupere sin interrumpir la aplicación.
+### Integración No Trivial Parte 1 + Parte 2 y Transparencia de Datos
+1. **Transparencia sobre los Datos (`src/data_loader.py` y `data/siata_pm25_historico.csv`):**
+   - Por defecto (`prefer_local_plan_b=True`), el pipeline utiliza `data/siata_pm25_historico.csv` ($360$ registros diarios = $60$ días $\times\ 6$ estaciones del Valle de Aburrá), el cual es un **dataset sintético con acoplamiento físico** generado de forma determinista (`seed=42`) en `generate_enriched_historical_dataset()` para servir como **Plan B reproducible** ante fallas de conectividad o cambios en APIs externas. Modela las coordenadas reales de las estaciones del SIATA (*Bello, Medellín Centro, El Poblado, Envigado, Itagüí y Caldas*), la persistencia temporal del $PM_{2.5}$, el lavado atmosférico por lluvia y la ventilación por viento.
+   - **Conexión con la fuente real del SIATA / `datos.gov.co`:** La función `try_fetch_siata_or_datos_gov()` implementa la consulta al recurso Socrata en `datos.gov.co` y se activa pasando `load_air_quality_data(prefer_local_plan_b=False)`, o bien reemplazando `data/siata_pm25_historico.csv` con históricos descargados del portal oficial de datos abiertos del SIATA (`https://siata.gov.co/descarga_siata/`).
+2. **Parte 1 (`src/model_part1.py` — Métricas Reproducibles en Test Temporal):**
+   - Implementación propia desde cero en NumPy de un clasificador **Gaussian Naive Bayes**, una **Regresión Ridge ($L_2$) en forma cerrada** y un **Filtro de Markov (HMM)** de 3 estados latentes (*Normal*, *Alerta / Prevención*, *Episodio Crítico*).
+   - Sobre los **$N_{\text{total}} = 354$ pares supervisados de transición ($t \rightarrow t+1$)** divididos cronológicamente en **$N_{\text{train}} = 265$ (75%)** y **$N_{\text{test}} = 89$ (25%)**, el modelo obtiene:
+     - **Accuracy en Test ($N_{\text{test}} = 89$):** `78.65%` (superando al Baseline de Persistencia `71.91%` y a la Clase Mayoritaria `43.82%`).
+     - **Macro F1-Score:** `0.7392` (vs. `0.7169` en Persistencia y `0.2031` en Mayoritaria).
+     - **Weighted F1-Score:** `0.7873` (vs. `0.7195` en Persistencia).
+     - **MAE / RMSE Regresión $PM_{2.5}$:** `MAE = 3.26 µg/m³` (vs. `4.25 µg/m³` en Persistencia) y `RMSE = 4.03 µg/m³`.
+3. **Parte 2 (`src/agent_rag.py` y `src/evaluate_agent.py`):**
+   - **Loop Agéntico Manual:** Controla explícitamente el ciclo $\text{Pensamiento} \rightarrow \text{Llamada a Herramienta} \rightarrow \text{Observación}$ con límite $T_{\max}$ usando la API de **Groq** (`openai/gpt-oss-120b` / `llama-3.3-70b-versatile`).
+   - **Tres herramientas con manejo robusto de errores:** `get_pm25(estacion)`, `predict_tomorrow(estacion)` y `search_docs(query)` (con **FAISS** `IndexFlatIP`).
+   - **Evaluación real con criterio estricto de igualdad de conjuntos (`src/evaluate_agent.py`):** Evaluando el **Agente LLM Real en Groq (`openai/gpt-oss-120b`)** sobre las 12 preguntas de prueba (`data/evaluacion_agente_12_preguntas.csv`), alcanza **91.7% (11/12)** de coincidencia exacta de conjuntos de herramientas (`set(invocadas) == set(esperadas)`): acierta exactamente en `Q01`–`Q10` y `Q12` (incluyendo autorrecuperación ante observación de error en `Q04`), mientras que en `Q11` (*Bogotá Norte*) rechaza directamente la estación fuera del Valle sin llamar a `get_pm25` (`Faltantes: get_pm25`).
 
 ---
 
