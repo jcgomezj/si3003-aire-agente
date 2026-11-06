@@ -33,9 +33,28 @@ import pandas as pd
 
 from src.agent_rag import AirQualityToolkit
 from src.data_loader import load_air_quality_data
-from src.eda import compute_eda_summary
 from src.evaluate_agent import run_agent_evaluation
 from src.model_part1 import ClassicalAirQualityModel, DEFAULT_MODEL_PATH
+
+
+def compute_eda_summary_local(df: pd.DataFrame) -> pd.DataFrame:
+    """Calcula la tabla resumen estadística por estación SIATA sin requerir librerías gráficas web."""
+    return (
+        df.groupby(["station_id", "nombre", "municipio"], as_index=False)
+        .agg(
+            dias_monitoreados=("pm25", "count"),
+            pm25_promedio=("pm25", lambda s: round(float(s.mean()), 2)),
+            pm25_std=("pm25", lambda s: round(float(s.std()), 2)),
+            pm25_maximo=("pm25", "max"),
+            lluvia_media_mm=("precipitacion_mm", lambda s: round(float(s.mean()), 2)),
+            viento_medio_ms=("velocidad_viento_ms", lambda s: round(float(s.mean()), 2)),
+            pct_dias_criticos_o_alerta=(
+                "pm25",
+                lambda s: round(float((s > 37.0).mean() * 100.0), 1),
+            ),
+        )
+        .sort_values("pm25_promedio", ascending=False)
+    )
 
 # Colores institucionales sobrios (Azul oscuro EAFIT, Gris pizarra, Verde ambiental)
 NAVY_PRIMARY = "#0f2c59"
@@ -811,7 +830,7 @@ def generate_all_deliverable_pdfs() -> List[Path]:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     df = load_air_quality_data()
-    summary_eda = compute_eda_summary(df)
+    summary_eda = compute_eda_summary_local(df)
     model = ClassicalAirQualityModel()
     metrics = model.fit_and_evaluate(df)
     model.save_model(DEFAULT_MODEL_PATH)
