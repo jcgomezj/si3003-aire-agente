@@ -19,9 +19,9 @@ Proyecto_Final_IA/
 ├── docs_rag/
 │   └── normativa_poeca_amva.md        # Corpus normativo: Acuerdo POECA del AMVA y Res. 2254 de 2017
 ├── entregables_pdf/
-│   ├── 1_Informe_Tecnico_SI3003_Gomez_Arango.pdf       # Entregable 2: Informe técnico oficial (4 páginas)
-│   ├── 2_Evaluacion_Agente_12_Preguntas_SI3003.pdf     # Entregable 4: Evaluación de las 12 preguntas del agente
-│   └── 3_Declaracion_Uso_IA_Generativa_SI3003.pdf      # Entregable 5: Declaración de uso ético de IA generativa
+│   ├── Informe_breve_calidad_aire_SI3003_estilo_original.pdf # Entregable 2: Informe técnico oficial (4 páginas)
+│   ├── 2_Evaluacion_Agente_12_Preguntas_SI3003.pdf           # Entregable 4: Evaluación de las 12 preguntas del agente
+│   └── 3_Declaracion_Uso_IA_Generativa_SI3003.pdf            # Entregable 5: Declaración de uso ético de IA generativa
 ├── models/
 │   └── air_quality_model_part1.pkl    # Artefacto serializado del modelo clásico de la Parte 1 (se genera automáticamente)
 ├── notebooks/
